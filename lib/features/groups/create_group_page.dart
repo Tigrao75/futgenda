@@ -1,7 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:uuid/uuid.dart';
+import '../../services/group_service.dart';
+import '../../models/group_model.dart';
 
 class CreateGroupPage extends StatefulWidget {
   const CreateGroupPage({super.key});
+  
 
   @override
   State<CreateGroupPage> createState() => _CreateGroupPageState();
@@ -9,6 +13,8 @@ class CreateGroupPage extends StatefulWidget {
 
 class _CreateGroupPageState extends State<CreateGroupPage> {
   final _nameController = TextEditingController();
+  final GroupService _groupService = GroupService();
+  final uuid = const Uuid();
    int maxParticipants = 10;
   
 
@@ -152,10 +158,21 @@ class _CreateGroupPageState extends State<CreateGroupPage> {
             const SizedBox(height: 30),
 
             ElevatedButton(
-              onPressed: () {
-                // depois vamos salvar no Firebase
-                Navigator.pop(context);
-              },
+              onPressed: () async {
+  final group = Group(
+    id: uuid.v4(),
+    name: _nameController.text,
+    ownerId: 'temp-user', // depois vamos usar auth real
+    maxParticipants: maxParticipants,
+    eventDay: selectedDay,
+    startTime: formatTime(startTime),
+    endTime: formatTime(endTime),
+  );
+
+  await _groupService.createGroup(group);
+
+  Navigator.pop(context);
+},
               child: const Text('Criar Grupo'),
             )
           ],

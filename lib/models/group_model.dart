@@ -4,15 +4,17 @@ class Group {
   final String ownerId;
   final int maxParticipants;
   final String eventDay;
-  final String eventTime;
+  final String startTime;
+  final String endTime;
 
   Group({
-    required this.id,
-    required this.name,
-    required this.ownerId,
-    required this.maxParticipants,
-    required this.eventDay,
-    required this.eventTime,
+  required this.id,
+  required this.name,
+  required this.ownerId,
+  required this.maxParticipants,
+  required this.eventDay,
+  required this.startTime,
+  required this.endTime,
   });
 
   Map<String, dynamic> toMap() {
@@ -22,7 +24,8 @@ class Group {
       'ownerId': ownerId,
       'maxParticipants': maxParticipants,
       'eventDay': eventDay,
-      'eventTime': eventTime,
+      'startTime': startTime,
+      'endTime': endTime,
     };
   }
 
@@ -33,7 +36,8 @@ class Group {
       ownerId: map['ownerId'],
       maxParticipants: map['maxParticipants'],
       eventDay: map['eventDay'],
-      eventTime: map['eventTime'],
+      startTime: map['startTime'],
+      endTime: map['endTime'],
     );
   }
 }
