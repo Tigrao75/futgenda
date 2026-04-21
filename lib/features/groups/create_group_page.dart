@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:uuid/uuid.dart';
 import '../../services/group_service.dart';
 import '../../models/group_model.dart';
+import '../../services/auth_service.dart';
 
 class CreateGroupPage extends StatefulWidget {
   const CreateGroupPage({super.key});
@@ -15,13 +16,16 @@ class _CreateGroupPageState extends State<CreateGroupPage> {
   final _nameController = TextEditingController();
   final GroupService _groupService = GroupService();
   final uuid = const Uuid();
+  final AuthService _authService = AuthService();
    int maxParticipants = 10;
-  
+  bool isLoading = false;
 
   String selectedDay = 'Tuesday';
 
   TimeOfDay startTime = const TimeOfDay(hour: 19, minute: 0);
   TimeOfDay endTime = const TimeOfDay(hour: 21, minute: 0);
+
+  
 
   Future<void> _selectTime(BuildContext context, bool isStart) async {
     final picked = await showTimePicker(
@@ -158,22 +162,42 @@ class _CreateGroupPageState extends State<CreateGroupPage> {
             const SizedBox(height: 30),
 
             ElevatedButton(
-              onPressed: () async {
-  final group = Group(
-    id: uuid.v4(),
-    name: _nameController.text,
-    ownerId: 'temp-user', // depois vamos usar auth real
-    maxParticipants: maxParticipants,
-    eventDay: selectedDay,
-    startTime: formatTime(startTime),
-    endTime: formatTime(endTime),
-  );
+              onPressed: isLoading ? null : () async {
+                setState(() => isLoading = true);
 
-  await _groupService.createGroup(group);
+                if (_nameController.text.trim().isEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Informe o nome do grupo')),
+                  );
+                  setState(() => isLoading = false);
+                  return;
+                }
 
-  Navigator.pop(context);
-},
-              child: const Text('Criar Grupo'),
+                final group = Group(
+                id: uuid.v4(),
+                name: _nameController.text,
+                ownerId: _authService.currentUser?.uid ?? 'temp-user',
+                maxParticipants: maxParticipants,
+                eventDay: selectedDay,
+                startTime: formatTime(startTime),
+                endTime: formatTime(endTime),
+                );
+
+              await _groupService.createGroup(group);
+
+              if (!mounted) return;
+
+              setState(() => isLoading = false);
+
+              Navigator.pop(context);
+        },
+              child: isLoading
+              ? const SizedBox(
+                height: 20,
+                width: 20,
+                child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+              )
+              : const Text('Criar Grupo'),
             )
           ],
         ),

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'features/groups/group_list_page.dart';
 import 'features/groups/create_group_page.dart';
+import 'features/auth/register_page.dart';
 import 'package:firebase_core/firebase_core.dart';
 
 void main() async {
@@ -18,9 +19,13 @@ class MyApp extends StatelessWidget {
       title: 'Futgenda',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(primarySwatch: Colors.blue),
-      initialRoute: '/',
+
+      // 🔥 COMEÇA PELO CADASTRO (temporário)
+      initialRoute: '/register',
+
       routes: {
-        '/': (context) => const GroupListPage(),
+        '/register': (context) => const RegisterPage(),
+        '/home': (context) => const GroupListPage(),
         '/create-group': (context) => const CreateGroupPage(),
       },
     );

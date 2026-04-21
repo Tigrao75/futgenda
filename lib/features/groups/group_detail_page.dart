@@ -50,7 +50,21 @@ class GroupDetailPage extends StatelessWidget {
               final data = members[index].data() as Map<String, dynamic>;
 
               return ListTile(
-                title: Text(data['userId']), // depois vamos trocar por nome
+                title: FutureBuilder<DocumentSnapshot>(
+                future: FirebaseFirestore.instance
+                  .collection('users')
+                  .doc(data['userId'])
+                  .get(),
+                builder: (context, userSnapshot) {
+              if (!userSnapshot.hasData) {
+                return const Text('Carregando...');
+              }
+
+              final userData = userSnapshot.data!.data() as Map<String, dynamic>;
+              return Text(userData['nickname'] ?? 'Sem nome');
+                },
+                ), // depois vamos trocar por nome
+                
                 subtitle: Text(
                   '${getRoleLabel(data['role'])} • ${getTypeLabel(data['type'])}',
                 ),
