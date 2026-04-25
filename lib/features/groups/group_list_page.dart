@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import '../../services/group_service.dart';
 import '../../models/group_model.dart';
 import 'group_detail_page.dart';
+import '../../services/auth_service.dart';
 
 final GroupService _groupService = GroupService();
+final AuthService _authService = AuthService();
 
 class GroupListPage extends StatelessWidget {
   const GroupListPage({super.key});
@@ -13,6 +15,18 @@ class GroupListPage extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Futgenda'),
+        actions: [
+          IconButton(
+          icon: const Icon(Icons.logout),
+          onPressed: () async {
+            await _authService.logout();
+
+            if (!context.mounted) return;
+
+      Navigator.pushReplacementNamed(context, '/login');
+        },
+          ),
+        ],
       ),
       body: StreamBuilder<List<Group>>(
       stream: _groupService.getGroups(),
@@ -50,6 +64,7 @@ class GroupListPage extends StatelessWidget {
 );
       },
       ),
+
 
   floatingActionButton: FloatingActionButton(
         onPressed: () {

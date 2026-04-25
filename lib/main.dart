@@ -3,6 +3,8 @@ import 'features/groups/group_list_page.dart';
 import 'features/groups/create_group_page.dart';
 import 'features/auth/register_page.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'features/auth/login_page.dart';
+import 'features/auth/auth_check.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -20,14 +22,15 @@ class MyApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       theme: ThemeData(primarySwatch: Colors.blue),
 
-      // 🔥 COMEÇA PELO CADASTRO (temporário)
-      initialRoute: '/register',
+      // 🔥 NOVO: controla login automático
+      home: const AuthCheck(),
 
       routes: {
+        '/login': (context) => const LoginPage(),
         '/register': (context) => const RegisterPage(),
         '/home': (context) => const GroupListPage(),
         '/create-group': (context) => const CreateGroupPage(),
-      },
+  },
     );
   }
 }

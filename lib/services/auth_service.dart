@@ -5,6 +5,10 @@ class AuthService {
 
   User? get currentUser => _auth.currentUser;
 
+  Future<void> resetPassword(String email) async {
+  await _auth.sendPasswordResetEmail(email: email);
+}
+
   Future<User?> register(String email, String password) async {
     final cred = await _auth.createUserWithEmailAndPassword(
       email: email,
