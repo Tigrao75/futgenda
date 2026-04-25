@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../services/auth_service.dart';
 import '../../services/user_service.dart';
-import '../../models/user_model.dart';
+
 
 class RegisterPage extends StatefulWidget {
   const RegisterPage({super.key});
@@ -21,41 +22,54 @@ class _RegisterPageState extends State<RegisterPage> {
   final TextEditingController passwordController = TextEditingController();
 
   Future<void> register() async {
-    final email = emailController.text.trim();
-    final password = passwordController.text.trim();
-    final name = nameController.text.trim();
-    final nickname = nicknameController.text.trim();
-    final phone = phoneController.text.trim();
+  final name = nameController.text.trim();
+  final nickname = nicknameController.text.trim();
+  final email = emailController.text.trim();
+  final phone = phoneController.text.trim();
+  final password = passwordController.text.trim();
 
-    if (email.isEmpty ||
-        password.isEmpty ||
-        name.isEmpty ||
-        nickname.isEmpty ||
-        phone.isEmpty) {
+  if (name.isEmpty ||
+      nickname.isEmpty ||
+      email.isEmpty ||
+      phone.isEmpty ||
+      password.isEmpty) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Preencha todos os campos')),
+    );
+    return;
+  }
+
+  try {
+    final user = await _authService.register(email, password);
+
+    if (user == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Preencha todos os campos')),
+        const SnackBar(content: Text('Erro ao cadastrar')),
       );
       return;
     }
 
-    final user = await _authService.register(email, password);
-
-    if (user == null) return;
-
-    await _userService.createUser(
-      AppUser(
-        id: user.uid,
-        name: name,
-        nickname: nickname,
-        email: email,
-        phone: phone,
-      ),
-    );
+    // 🔥 SALVAR NO FIRESTORE
+    await FirebaseFirestore.instance
+        .collection('users')
+        .doc(user.uid)
+        .set({
+      'name': name,
+      'nickname': nickname,
+      'email': email,
+      'phone': phone,
+    });
 
     if (!mounted) return;
 
-    Navigator.pushReplacementNamed(context, '/home');
+    Navigator.pop(context);
+
+  } catch (e) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Erro no cadastro')),
+    );
   }
+}
 
   @override
   Widget build(BuildContext context) {

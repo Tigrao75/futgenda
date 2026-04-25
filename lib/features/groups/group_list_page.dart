@@ -23,7 +23,11 @@ class GroupListPage extends StatelessWidget {
 
             if (!context.mounted) return;
 
-      Navigator.pushReplacementNamed(context, '/login');
+      Navigator.pushNamedAndRemoveUntil(
+        context,
+        '/login',
+        (route) => false,
+      );
         },
           ),
         ],
