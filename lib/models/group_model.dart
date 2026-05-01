@@ -29,15 +29,15 @@ class Group {
     };
   }
 
-  factory Group.fromMap(Map<String, dynamic> map) {
+  factory Group.fromMap(Map<String, dynamic> map, {String? id}) {
     return Group(
-      id: map['id'],
-      name: map['name'],
-      ownerId: map['ownerId'],
-      maxParticipants: map['maxParticipants'],
-      eventDay: map['eventDay'],
-      startTime: map['startTime'],
-      endTime: map['endTime'],
+      id: id ?? map['id'] ?? '',
+      name: map['name'] ?? 'Sem nome',
+      ownerId: map['ownerId'] ?? '',
+      maxParticipants: map['maxParticipants'] ?? 0,
+      eventDay: map['eventDay'] ?? 'Sem data',
+      startTime: map['startTime'] ?? '--:--',
+      endTime: map['endTime'] ?? '--:--',
     );
   }
 }

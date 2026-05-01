@@ -92,24 +92,18 @@ class _LoginPageState extends State<LoginPage> {
     }
 
     try {
-  print('TENTANDO RESET PARA: $email');
+      await _authService.resetPassword(email);
 
-  await _authService.resetPassword(email);
+      if (!mounted) return;
 
-  print('RESET CHAMADO COM SUCESSO');
-
-  if (!mounted) return;
-
-  ScaffoldMessenger.of(context).showSnackBar(
-    const SnackBar(content: Text('Se o email existir, você receberá instruções. Verifique também o spam.')),
-  );
-} catch (e) {
-  print('ERRO RESET: $e');
-
-  ScaffoldMessenger.of(context).showSnackBar(
-    const SnackBar(content: Text('Erro ao enviar email')),
-  );
-}
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Se o email existir, você receberá instruções. Verifique também o spam.')),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Erro ao enviar email')),
+      );
+    }
   }
 
   @override

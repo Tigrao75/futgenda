@@ -35,37 +35,61 @@ class GroupListPage extends StatelessWidget {
       body: StreamBuilder<List<Group>>(
       stream: _groupService.getGroups(),
       builder: (context, snapshot) {
-      if (snapshot.connectionState == ConnectionState.waiting) {
-        return const Center(child: CircularProgressIndicator());
-      }
+        // Log snapshot state
+        debugPrint('[GroupListPage] Connection state: ${snapshot.connectionState}');
+        debugPrint('[GroupListPage] Has error: ${snapshot.hasError}');
+        if (snapshot.hasError) {
+          debugPrint('[GroupListPage] Error: ${snapshot.error}');
+        }
+        debugPrint('[GroupListPage] Has data: ${snapshot.hasData}');
+        if (snapshot.hasData) {
+          debugPrint('[GroupListPage] Data length: ${snapshot.data!.length}');
+        }
 
-      if (!snapshot.hasData || snapshot.data!.isEmpty) {
-        return const Center(child: Text('Nenhum grupo ainda'));
-      }
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
 
-     final groups = snapshot.data!;
+        if (snapshot.hasError) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.error_outline, size: 48, color: Colors.red),
+                const SizedBox(height: 16),
+                Text('Erro ao carregar grupos:\n${snapshot.error}'),
+              ],
+            ),
+          );
+        }
 
-       return ListView.builder(
-      itemCount: groups.length,
-      itemBuilder: (context, index) {
-        final group = groups[index];
+        if (!snapshot.hasData || snapshot.data!.isEmpty) {
+          return const Center(child: Text('Nenhum grupo ainda'));
+        }
 
-        return ListTile(
-          title: Text(group.name),
-          subtitle: Text(
-            '${group.eventDay} • ${group.startTime} - ${group.endTime}',
-        ),
-          onTap: () {
-            Navigator.push(
-          context,
-            MaterialPageRoute(
-          builder: (_) => GroupDetailPage(groupId: group.id),
+        final groups = snapshot.data!;
+
+        return ListView.builder(
+          itemCount: groups.length,
+          itemBuilder: (context, index) {
+            final group = groups[index];
+
+            return ListTile(
+              title: Text(group.name),
+              subtitle: Text(
+                '${group.eventDay} • ${group.startTime} - ${group.endTime}',
               ),
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => GroupDetailPage(groupId: group.id),
+                  ),
+                );
+              },
             );
           },
-    );
-  },
-);
+        );
       },
       ),
 
