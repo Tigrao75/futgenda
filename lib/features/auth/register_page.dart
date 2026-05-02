@@ -56,7 +56,7 @@ class _RegisterPageState extends State<RegisterPage> {
         .set({
       'name': name,
       'nickname': nickname,
-      'email': email,
+      'email': email.trim().toLowerCase(),
       'phone': phone,
     });
 

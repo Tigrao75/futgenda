@@ -148,9 +148,20 @@ class GroupService {
     required String groupId,
     required String email,
   }) async {
+    // Verificar se o usuário atual tem permissão para convidar
+    final canInvite = await canInviteMembers(groupId);
+    if (!canInvite) {
+      throw Exception('Sem permissão para convidar membros');
+    }
+
+    // Normalizar email para minúsculas
+    final normalizedEmail = email.trim().toLowerCase();
+
+    debugPrint('🔍 Buscando usuário por email: $normalizedEmail');
+
     final query = await _firestore
         .collection('users')
-        .where('email', isEqualTo: email)
+        .where('email', isEqualTo: normalizedEmail)
         .get();
 
     if (query.docs.isEmpty) {
@@ -159,6 +170,8 @@ class GroupService {
 
     final userDoc = query.docs.first;
     final userId = userDoc.id;
+
+    debugPrint('✅ Usuário encontrado: $userId');
 
     final memberRef = _firestore
         .collection('groups')
@@ -177,6 +190,8 @@ class GroupService {
       'role': 'member',
       'type': 'avulso',
     });
+
+    debugPrint('✅ Membro adicionado: $userId');
   }
 
   Future<void> addMember({

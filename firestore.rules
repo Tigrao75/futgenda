@@ -1,10 +1,8 @@
 rules_version = '2';
+
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // ----------------------------
-    // Helper functions
-    // ----------------------------
     function signedIn() {
       return request.auth != null;
     }
@@ -13,53 +11,84 @@ service cloud.firestore {
       return signedIn() && request.auth.uid == userId;
     }
 
-    function validUserData() {
-      return request.resource.data.keys().hasOnly(['name', 'nickname', 'email', 'phone']) &&
-        request.resource.data.name is string &&
-        request.resource.data.nickname is string &&
-        request.resource.data.email is string &&
-        request.resource.data.phone is string;
+    function isGroupMember(groupId) {
+      return signedIn()
+        && exists(/databases/$(database)/documents/groups/$(groupId)/members/$(request.auth.uid));
     }
 
-    // ----------------------------
-    // Users collection rules
-    // ----------------------------
+    function getRole(groupId) {
+      return get(/databases/$(database)/documents/groups/$(groupId)/members/$(request.auth.uid)).data.role;
+    }
+
+    function isOwner(groupId) {
+      return isGroupMember(groupId) && getRole(groupId) == "owner";
+    }
+
+    function isAdmin(groupId) {
+      return isGroupMember(groupId) && getRole(groupId) == "admin";
+    }
+
+    function isOwnerOrAdmin(groupId) {
+      return isOwner(groupId) || isAdmin(groupId);
+    }
+
     match /users/{userId} {
-      allow create: if signedIn() && isSelf(userId) && validUserData();
-      allow read: if signedIn() && isSelf(userId);
-      allow update: if signedIn() && isSelf(userId) && validUserData();
-      allow delete: if signedIn() && isSelf(userId);
+      allow create: if isSelf(userId);
+      allow read: if signedIn();
+      allow update, delete: if isSelf(userId);
     }
 
-    // ----------------------------
-    // Group members collectionGroup read rules
-    // ----------------------------
     match /{path=**}/members/{memberId} {
       allow read: if signedIn() && resource.data.userId == request.auth.uid;
     }
 
-    // ----------------------------
-    // Groups collection rules (simplified for testing)
-    // ----------------------------
     match /groups/{groupId} {
       allow create: if signedIn()
         && request.resource.data.ownerId == request.auth.uid
         && request.resource.data.id == groupId;
-      allow read: if signedIn();
 
-      // ----------------------------
-      // Group members subcollection rules (simplified for testing)
-      // ----------------------------
+      allow read: if isGroupMember(groupId);
+
+      allow update: if isOwnerOrAdmin(groupId);
+
+      allow delete: if isOwner(groupId);
+
       match /members/{memberId} {
-        allow read: if signedIn() && isSelf(memberId);
+        allow read: if isGroupMember(groupId);
 
         allow create: if signedIn()
-          && memberId == request.auth.uid
-          && request.resource.data.userId == request.auth.uid;
+          && memberId == request.resource.data.userId
+          && request.resource.data.type in ["mensalista", "avulso"]
+          && (
+            (
+              request.resource.data.role == "owner"
+              && request.resource.data.userId == request.auth.uid
+              && getAfter(/databases/$(database)/documents/groups/$(groupId)).data.ownerId == request.auth.uid
+            )
+            ||
+            (
+              isOwnerOrAdmin(groupId)
+              && request.resource.data.role in ["member", "admin"]
+            )
+          );
+
+        allow update: if signedIn()
+          && request.resource.data.userId == resource.data.userId
+          && request.resource.data.role in ["member", "admin"]
+          && request.resource.data.type in ["mensalista", "avulso"]
+          && (
+            isOwner(groupId)
+            ||
+            (
+              isAdmin(groupId)
+              && resource.data.role != "owner"
+            )
+          );
+
+        allow delete: if signedIn()
+          && resource.data.role != "owner"
+          && isOwnerOrAdmin(groupId);
       }
     }
-
-    // No other documents are publicly readable or writable.
-    // Firestore denies all accesses unless explicitly allowed above.
   }
 }

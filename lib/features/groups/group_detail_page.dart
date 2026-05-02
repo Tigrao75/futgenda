@@ -115,14 +115,19 @@ class _GroupDetailPageState extends State<GroupDetailPage> {
                             );
                           } catch (e) {
                             String message = 'Erro ao adicionar';
+                            final errorString = e.toString().toLowerCase();
 
-                            if (e.toString().contains('não encontrado')) {
+                            if (errorString.contains('não encontrado')) {
                               message = 'Usuário não encontrado';
-                            } else if (e
-                                .toString()
-                                .contains('já está no grupo')) {
+                            } else if (errorString.contains('já está no grupo')) {
                               message = 'Usuário já está no grupo';
+                            } else if (errorString.contains('sem permissão')) {
+                              message = 'Sem permissão para convidar membros';
+                            } else if (errorString.contains('permission-denied')) {
+                              message = 'Sem permissão para buscar usuário';
                             }
+
+                            debugPrint('Erro ao adicionar membro: $e');
 
                             ScaffoldMessenger.of(context).showSnackBar(
                               SnackBar(content: Text(message)),
@@ -255,106 +260,225 @@ class _GroupDetailPageState extends State<GroupDetailPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Detalhes do Grupo'),
-        actions: [
-          if (_canInviteMembers == true)
-            IconButton(
-              icon: const Icon(Icons.person_add),
-              onPressed: () => _showAddMemberDialog(context),
-            ),
-          if (_canDeleteGroup == true)
-            IconButton(
-              icon: const Icon(Icons.delete),
-              onPressed: () => _showDeleteGroupDialog(context),
-            ),
-        ],
+    return DefaultTabController(
+      length: 3,
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('Detalhes do Grupo'),
+          actions: [
+            if (_canInviteMembers == true)
+              IconButton(
+                icon: const Icon(Icons.person_add),
+                onPressed: () => _showAddMemberDialog(context),
+              ),
+            if (_canDeleteGroup == true)
+              IconButton(
+                icon: const Icon(Icons.delete),
+                onPressed: () => _showDeleteGroupDialog(context),
+              ),
+          ],
+          bottom: const TabBar(
+            tabs: [
+            Tab(text: 'Gramado'),
+            Tab(text: 'Vestiário'),
+            Tab(text: 'CT'),
+          ],
+        ),
       ),
-      body: StreamBuilder<QuerySnapshot>(
-        stream: FirebaseFirestore.instance
-            .collection('groups')
-            .doc(widget.groupId)
-            .collection('members')
-            .snapshots(),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
+        body: TabBarView(
+          children: [
+            const _GramadoTab(),
+            _VestiarioTab(
+              groupId: widget.groupId,
+              groupService: _groupService,
+              canChangeMemberType: _canChangeMemberType,
+              canPromoteAdmin: _canPromoteAdmin,
+              currentUserRole: _currentUserRole,
+              onMemberAction: _handleMemberAction,
+            ),
+            const _CTTab(),
+          ],
+        ),
+      ),
+    );
+  }
+}
 
-          if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-            return const Center(child: Text('Nenhum membro'));
-          }
+class _GramadoTab extends StatelessWidget {
+  const _GramadoTab();
 
-          final members = snapshot.data!.docs;
-
-          return ListView.builder(
-            itemCount: members.length,
-            itemBuilder: (context, index) {
-              final data =
-                  members[index].data() as Map<String, dynamic>;
-
-              final role = data['role'] ?? '';
-              final type = data['type'] ?? 'avulso';
-
-              return ListTile(
-                title: FutureBuilder<DocumentSnapshot>(
-                  future: FirebaseFirestore.instance
-                      .collection('users')
-                      .doc(data['userId'])
-                      .get(),
-                  builder: (context, userSnapshot) {
-                    if (userSnapshot.connectionState ==
-                        ConnectionState.waiting) {
-                      return const Text('Carregando...');
-                    }
-
-                    if (!userSnapshot.hasData ||
-                        !userSnapshot.data!.exists) {
-                      return const Text('Usuário não encontrado');
-                    }
-
-                    final userData = userSnapshot.data!.data()
-                        as Map<String, dynamic>?;
-
-                    return Text(
-                      userData?['nickname'] ?? 'Sem apelido',
-                    );
-                  },
-                ),
-                subtitle: Text(
-                  '${getRoleLabel(role)} • ${getTypeLabel(type)}',
-                ),
-                trailing: (role == 'owner' && _currentUserRole == 'admin')
-                    ? null // Admin não pode alterar owner
-                    : (_canChangeMemberType == true || _canPromoteAdmin == true)
-                        ? PopupMenuButton<String>(
-                            onSelected: (value) => _handleMemberAction(context, data['userId'], value, role, type),
-                            itemBuilder: (context) => [
-                              if (_canChangeMemberType == true)
-                                PopupMenuItem(
-                                  value: type == 'mensalista' ? 'change_to_avulso' : 'change_to_mensalista',
-                                  child: Text('Tornar ${type == 'mensalista' ? 'Avulso' : 'Mensalista'}'),
-                                ),
-                              if (_canPromoteAdmin == true)
-                                if (role == 'member')
-                                  const PopupMenuItem(
-                                    value: 'promote_to_admin',
-                                    child: Text('Promover para Capitão'),
-                                  )
-                                else if (role == 'admin')
-                                  const PopupMenuItem(
-                                    value: 'demote_to_member',
-                                    child: Text('Remover Capitão'),
-                                  ),
-                            ],
-                          )
-                        : null,
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Text(
+            'Gramado',
+            style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 16),
+          const Text('Nenhuma pelada aberta'),
+          const SizedBox(height: 32),
+          ElevatedButton(
+            onPressed: () {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Funcionalidade em desenvolvimento')),
               );
             },
-          );
-        },
+            child: const Text('Abrir Pelada'),
+          ),
+        ],
       ),
+    );
+  }
+}
+
+class _VestiarioTab extends StatelessWidget {
+  final String groupId;
+  final GroupService groupService;
+  final bool? canChangeMemberType;
+  final bool? canPromoteAdmin;
+  final String? currentUserRole;
+  final Function(BuildContext, String, String, String, String) onMemberAction;
+
+  const _VestiarioTab({
+    required this.groupId,
+    required this.groupService,
+    required this.canChangeMemberType,
+    required this.canPromoteAdmin,
+    required this.currentUserRole,
+    required this.onMemberAction,
+  });
+
+  String getRoleLabel(String role) {
+    switch (role) {
+      case 'owner':
+        return 'Presidente';
+      case 'admin':
+        return 'Capitão';
+      default:
+        return '';
+    }
+  }
+
+  String getTypeLabel(String type) {
+    return type == 'mensalista' ? 'Mensalista' : 'Avulso';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('groups')
+          .doc(groupId)
+          .collection('members')
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+          return const Center(child: Text('Nenhum membro'));
+        }
+
+        final members = snapshot.data!.docs;
+
+        return ListView.builder(
+          itemCount: members.length,
+          itemBuilder: (context, index) {
+            final data = members[index].data() as Map<String, dynamic>;
+
+            final role = data['role'] ?? '';
+            final type = data['type'] ?? 'avulso';
+
+            return ListTile(
+              title: FutureBuilder<DocumentSnapshot>(
+                future: FirebaseFirestore.instance
+                    .collection('users')
+                    .doc(data['userId'])
+                    .get(),
+                builder: (context, userSnapshot) {
+                  if (userSnapshot.connectionState == ConnectionState.waiting) {
+                    return const Text('Carregando...');
+                  }
+
+                  if (!userSnapshot.hasData || !userSnapshot.data!.exists) {
+                    return const Text('Usuário não encontrado');
+                  }
+
+                  final userData = userSnapshot.data!.data() as Map<String, dynamic>?;
+
+                  return Text(userData?['nickname'] ?? 'Sem apelido');
+                },
+              ),
+              subtitle: Text('${getRoleLabel(role)} • ${getTypeLabel(type)}'),
+              trailing: (role == 'owner' && currentUserRole == 'admin')
+                  ? null // Admin não pode alterar owner
+                  : (canChangeMemberType == true || canPromoteAdmin == true)
+                      ? PopupMenuButton<String>(
+                          onSelected: (value) => onMemberAction(context, data['userId'], value, role, type),
+                          itemBuilder: (context) => [
+                            if (canChangeMemberType == true)
+                              PopupMenuItem(
+                                value: type == 'mensalista' ? 'change_to_avulso' : 'change_to_mensalista',
+                                child: Text('Tornar ${type == 'mensalista' ? 'Avulso' : 'Mensalista'}'),
+                              ),
+                            if (canPromoteAdmin == true)
+                              if (role == 'member')
+                                const PopupMenuItem(
+                                  value: 'promote_to_admin',
+                                  child: Text('Promover para Capitão'),
+                                )
+                              else if (role == 'admin')
+                                const PopupMenuItem(
+                                  value: 'demote_to_member',
+                                  child: Text('Remover Capitão'),
+                                ),
+                          ],
+                        )
+                      : null,
+            );
+          },
+        );
+      },
+    );
+  }
+}
+
+class _CTTab extends StatelessWidget {
+  const _CTTab();
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        const Text(
+          'CT',
+          style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 16),
+        ListTile(
+          title: const Text('Editar grupo'),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Funcionalidade em desenvolvimento')),
+            );
+          },
+        ),
+        ListTile(
+          title: const Text('Editar evento'),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Funcionalidade em desenvolvimento')),
+            );
+          },
+        ),
+      ],
     );
   }
 }
