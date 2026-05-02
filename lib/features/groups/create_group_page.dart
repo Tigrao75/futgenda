@@ -173,31 +173,49 @@ class _CreateGroupPageState extends State<CreateGroupPage> {
                   return;
                 }
 
+                final currentUser = _authService.currentUser;
+                if (currentUser == null) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Usuário não está autenticado')),
+                  );
+                  setState(() => isLoading = false);
+                  return;
+                }
+
                 final group = Group(
-                id: uuid.v4(),
-                name: _nameController.text,
-                ownerId: _authService.currentUser?.uid ?? 'temp-user',
-                maxParticipants: maxParticipants,
-                eventDay: selectedDay,
-                startTime: formatTime(startTime),
-                endTime: formatTime(endTime),
+                  id: uuid.v4(),
+                  name: _nameController.text.trim(),
+                  ownerId: currentUser.uid,
+                  maxParticipants: maxParticipants,
+                  eventDay: selectedDay,
+                  startTime: formatTime(startTime),
+                  endTime: formatTime(endTime),
                 );
 
-              await _groupService.createGroup(group);
-
-              if (!mounted) return;
-
-              setState(() => isLoading = false);
-
-              Navigator.pop(context);
-        },
+                try {
+                  await _groupService.createGroup(group);
+                  if (!mounted) return;
+                  Navigator.pop(context);
+                } catch (e, stackTrace) {
+                  debugPrint('Erro ao criar grupo: $e');
+                  debugPrint('$stackTrace');
+                  if (!mounted) return;
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Erro ao criar grupo')),
+                  );
+                } finally {
+                  if (mounted) {
+                    setState(() => isLoading = false);
+                  }
+                }
+              },
               child: isLoading
-              ? const SizedBox(
-                height: 20,
-                width: 20,
-                child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
-              )
-              : const Text('Criar Grupo'),
+                  ? const SizedBox(
+                      height: 20,
+                      width: 20,
+                      child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                    )
+                  : const Text('Criar Grupo'),
             )
           ],
         ),

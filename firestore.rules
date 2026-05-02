@@ -1,0 +1,65 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ----------------------------
+    // Helper functions
+    // ----------------------------
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isSelf(userId) {
+      return signedIn() && request.auth.uid == userId;
+    }
+
+    function validUserData() {
+      return request.resource.data.keys().hasOnly(['name', 'nickname', 'email', 'phone']) &&
+        request.resource.data.name is string &&
+        request.resource.data.nickname is string &&
+        request.resource.data.email is string &&
+        request.resource.data.phone is string;
+    }
+
+    // ----------------------------
+    // Users collection rules
+    // ----------------------------
+    match /users/{userId} {
+      allow create: if signedIn() && isSelf(userId) && validUserData();
+      allow read: if signedIn() && isSelf(userId);
+      allow update: if signedIn() && isSelf(userId) && validUserData();
+      allow delete: if signedIn() && isSelf(userId);
+    }
+
+    // ----------------------------
+    // Group members collectionGroup read rules
+    // ----------------------------
+    match /{path=**}/members/{memberId} {
+      allow read: if signedIn() && resource.data.userId == request.auth.uid;
+    }
+
+    // ----------------------------
+    // Groups collection rules (simplified for testing)
+    // ----------------------------
+    match /groups/{groupId} {
+      allow create: if signedIn()
+        && request.resource.data.ownerId == request.auth.uid
+        && request.resource.data.id == groupId;
+      allow read: if signedIn();
+
+      // ----------------------------
+      // Group members subcollection rules (simplified for testing)
+      // ----------------------------
+      match /members/{memberId} {
+        allow read: if signedIn() && isSelf(memberId);
+
+        allow create: if signedIn()
+          && memberId == request.auth.uid
+          && request.resource.data.userId == request.auth.uid;
+      }
+    }
+
+    // No other documents are publicly readable or writable.
+    // Firestore denies all accesses unless explicitly allowed above.
+  }
+}

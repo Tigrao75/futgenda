@@ -46,21 +46,26 @@ class GroupListPage extends StatelessWidget {
           debugPrint('[GroupListPage] Data length: ${snapshot.data!.length}');
         }
 
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
-        }
-
         if (snapshot.hasError) {
-          return Center(
+          debugPrint('Erro no stream: ${snapshot.error.toString()}');
+
+          return const Center(
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                const Icon(Icons.error_outline, size: 48, color: Colors.red),
-                const SizedBox(height: 16),
-                Text('Erro ao carregar grupos:\n${snapshot.error}'),
+                Text('Erro ao carregar grupos'),
+                SizedBox(height: 8),
+                Text(
+                  'Verifique o índice do Firestore',
+                  style: TextStyle(fontSize: 12),
+                ),
               ],
             ),
           );
+        }
+
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
         }
 
         if (!snapshot.hasData || snapshot.data!.isEmpty) {

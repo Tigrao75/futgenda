@@ -20,6 +20,7 @@ class GroupService {
 
     debugPrint('═══ GroupService.getGroups ═══');
     debugPrint('USER_ID: $userId');
+    debugPrint('UserId atual: $userId');
 
     if (userId == null) {
       debugPrint('❌ USER_ID is null, returning empty stream');
@@ -98,26 +99,49 @@ class GroupService {
     }).handleError((error) {
       debugPrint('❌ Stream error in getGroups: $error');
       debugPrint('═══════════════════════════════════');
+      throw error;
     });
   }
 
   Future<void> createGroup(Group group) async {
-    await _firestore
-        .collection('groups')
-        .doc(group.id)
-        .set(group.toMap());
+    final currentUser = FirebaseAuth.instance.currentUser;
+    if (currentUser == null) {
+      throw FirebaseException(
+        plugin: 'cloud_firestore',
+        code: 'unauthenticated',
+        message: 'Usuário não autenticado',
+      );
+    }
 
-    // adiciona o criador como presidente
-    await _firestore
-        .collection('groups')
-        .doc(group.id)
-        .collection('members')
-        .doc(group.ownerId)
-        .set({
-      'userId': group.ownerId,
+    if (group.ownerId != currentUser.uid) {
+      throw FirebaseException(
+        plugin: 'cloud_firestore',
+        code: 'permission-denied',
+        message: 'O ownerId deve ser o usuário autenticado',
+      );
+    }
+
+    final groupRef = _firestore.collection('groups').doc(group.id);
+    final ownerMemberRef = groupRef.collection('members').doc(currentUser.uid);
+
+    final batch = _firestore.batch();
+    final groupMap = group.toMap();
+    groupMap['ownerId'] = currentUser.uid;
+
+    batch.set(groupRef, groupMap);
+    batch.set(ownerMemberRef, {
+      'userId': currentUser.uid,
       'role': 'owner',
       'type': 'mensalista',
     });
+
+    debugPrint('🔥 CREATE_GROUP DEBUG:');
+    debugPrint('  currentUser.uid: ${currentUser.uid}');
+    debugPrint('  group.id: ${group.id}');
+    debugPrint('  group.ownerId: ${group.ownerId}');
+    debugPrint('  group.toMap(): $groupMap');
+
+    await batch.commit();
   }
 
   Future<void> addMemberByEmail({
