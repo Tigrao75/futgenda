@@ -53,6 +53,38 @@ service cloud.firestore {
 
       allow delete: if isOwner(groupId);
 
+      // ----------------------------
+      // Events (Pelada)
+      // ----------------------------
+      match /events/{eventId} {
+        allow read: if isGroupMember(groupId);
+
+        allow create: if signedIn()
+          && isOwnerOrAdmin(groupId);
+
+        allow update: if signedIn()
+          && isOwnerOrAdmin(groupId);
+
+        allow delete: if signedIn()
+          && isOwner(groupId);
+
+        match /participants/{userId} {
+          allow read: if isGroupMember(groupId);
+
+          allow create: if signedIn()
+            && isOwnerOrAdmin(groupId);
+
+          allow update: if signedIn()
+            && (
+              isOwnerOrAdmin(groupId)
+              || request.auth.uid == userId
+            );
+
+          allow delete: if signedIn()
+            && isOwnerOrAdmin(groupId);
+        }
+      }
+
       match /members/{memberId} {
         allow read: if isGroupMember(groupId);
 
