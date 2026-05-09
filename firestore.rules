@@ -78,6 +78,15 @@ service cloud.firestore {
             && (
               isOwnerOrAdmin(groupId)
               || request.auth.uid == userId
+              || (
+                isGroupMember(groupId)
+                && resource.data.status == 'lista_espera'
+                && request.resource.data.status == 'confirmado'
+                && request.resource.data.userId == resource.data.userId
+                && request.resource.data.role == resource.data.role
+                && request.resource.data.type == resource.data.type
+                && request.resource.data.confirmedAt == resource.data.confirmedAt
+              )
             );
 
           allow delete: if signedIn()

@@ -58,7 +58,7 @@ class GroupService {
             final groupSnap = await groupRef.get();
 
             if (!groupSnap.exists) {
-              errors.add('Member $i: group ${groupRef.id} does not exist');
+              debugPrint('Member órfão ignorado: ${memberDoc.id}');
               continue;
             }
 

@@ -135,6 +135,74 @@ class EventService {
     });
   }
 
+  Stream<List<Event>> getEventHistory(String groupId) {
+    debugPrint('═══ EventService.getEventHistory ═══');
+    debugPrint('groupId: $groupId');
+    return _firestore
+        .collection('groups')
+        .doc(groupId)
+        .collection('events')
+        .where('status', whereIn: ['closed', 'cancelled'])
+        .snapshots()
+        .map((snapshot) {
+      final events = snapshot.docs
+          .map((doc) => Event.fromMap(doc.id, doc.data()))
+          .toList();
+      events.sort((a, b) => b.date.compareTo(a.date));
+      return events;
+    }).handleError((error) {
+      debugPrint('Stream error in getEventHistory: $error');
+      debugPrint('═════════════════════════════');
+      throw error;
+    });
+  }
+
+  Future<void> closePelada({
+    required String groupId,
+    required String eventId,
+  }) async {
+    final currentUser = FirebaseAuth.instance.currentUser;
+    if (currentUser == null) {
+      throw Exception('Usuário não autenticado');
+    }
+
+    final currentRole = await _groupService.getCurrentUserRole(groupId);
+    if (currentRole != 'owner' && currentRole != 'admin') {
+      throw Exception('Permissão negada: somente Presidente e Capitão podem fechar a pelada');
+    }
+
+    debugPrint('Fechando pelada: $eventId');
+    await _firestore
+        .collection('groups')
+        .doc(groupId)
+        .collection('events')
+        .doc(eventId)
+        .update({
+      'status': 'closed',
+      'closedAt': FieldValue.serverTimestamp(),
+    });
+    debugPrint('Pelada fechada com sucesso');
+  }
+
+  Future<bool> _hasPendingMensalista({
+    required String groupId,
+    required String eventId,
+  }) async {
+    final participantsCollection = _firestore
+        .collection('groups')
+        .doc(groupId)
+        .collection('events')
+        .doc(eventId)
+        .collection('participants');
+
+    final pendingMensalistas = await participantsCollection
+        .where('type', isEqualTo: 'mensalista')
+        .where('status', isEqualTo: 'aguardando')
+        .get();
+
+    return pendingMensalistas.docs.isNotEmpty;
+  }
+
   Stream<List<EventParticipant>> getParticipants(String groupId, String eventId) {
     debugPrint('═══ EventService.getParticipants ═══');
     debugPrint('groupId: $groupId, eventId: $eventId');
@@ -197,43 +265,99 @@ class EventService {
     if (newStatus == 'confirmado') {
       if (currentParticipant.status == 'confirmado') {
         await participantRef.update({'updatedAt': now});
+        debugPrint('updatePresence: userId=$userId, type=${currentParticipant.type}, oldStatus=${currentParticipant.status}, requestedStatus=$newStatus, finalStatus=${currentParticipant.status}, confirmados=N/A');
         return;
       }
 
-      final confirmedSnapshot = await participantsCollection.where('status', isEqualTo: 'confirmado').get();
-      final confirmedCount = confirmedSnapshot.docs.length;
-      final statusToSave = confirmedCount >= group.maxParticipants ? 'lista_espera' : 'confirmado';
+      String statusToSave;
+      if (currentParticipant.type == 'mensalista') {
+        // Mensalistas: contar confirmados
+        final confirmedSnapshot = await participantsCollection.where('status', isEqualTo: 'confirmado').get();
+        final confirmedCount = confirmedSnapshot.docs.length;
+        statusToSave = confirmedCount >= group.maxParticipants ? 'lista_espera' : 'confirmado';
+        debugPrint('updatePresence: userId=$userId, type=${currentParticipant.type}, oldStatus=${currentParticipant.status}, requestedStatus=$newStatus, finalStatus=$statusToSave, confirmados=$confirmedCount, maxParticipants=${group.maxParticipants}, hasPendingMensalista=N/A');
 
-      await participantRef.update({
-        'status': statusToSave,
-        'updatedAt': now,
-        'confirmedAt': statusToSave == 'confirmado' ? now : null,
-      });
-      return;
+        await participantRef.update({
+          'status': statusToSave,
+          'updatedAt': now,
+          'confirmedAt': now, // Sempre setar confirmedAt para preservar ordem
+        });
+
+        if (statusToSave == 'lista_espera') {
+          debugPrint('Usuário $userId entrou na lista de espera para evento $eventId');
+        }
+
+        return;
+      } else {
+        // Avulsos: verificar se há mensalistas aguardando
+        final hasPendingMensalista = await _hasPendingMensalista(groupId: groupId, eventId: eventId);
+        final confirmedSnapshot = await participantsCollection.where('status', isEqualTo: 'confirmado').get();
+        final confirmedCount = confirmedSnapshot.docs.length;
+
+        if (hasPendingMensalista) {
+          statusToSave = 'lista_espera';
+        } else {
+          statusToSave = confirmedCount >= group.maxParticipants ? 'lista_espera' : 'confirmado';
+        }
+
+        final confirmedAtToSave = currentParticipant.confirmedAt != null ? Timestamp.fromDate(currentParticipant.confirmedAt!) : now;
+        debugPrint('updatePresence: userId=$userId, type=${currentParticipant.type}, oldStatus=${currentParticipant.status}, requestedStatus=$newStatus, hasPendingMensalista=$hasPendingMensalista, confirmedCount=$confirmedCount, maxParticipants=${group.maxParticipants}, finalStatus=$statusToSave');
+
+        await participantRef.update({
+          'status': statusToSave,
+          'updatedAt': now,
+          'confirmedAt': confirmedAtToSave,
+        });
+
+        if (statusToSave == 'lista_espera') {
+          debugPrint('Usuário $userId entrou na lista de espera para evento $eventId');
+        }
+
+        return;
+      }
     }
 
     if (newStatus == 'arregou') {
-      await participantRef.update({
-        'status': 'arregou',
-        'updatedAt': now,
-        'confirmedAt': null,
-      });
+      final wasConfirmed = currentParticipant.status == 'confirmado';
 
-      if (currentParticipant.status == 'confirmado') {
-        final queueSnapshot = await participantsCollection
-            .where('status', isEqualTo: 'lista_espera')
-            .orderBy('updatedAt')
-            .limit(1)
-            .get();
+      debugPrint('updatePresence: userId=$userId, type=${currentParticipant.type}, oldStatus=${currentParticipant.status}, requestedStatus=$newStatus, finalStatus=arregou, confirmados=N/A');
 
-        if (queueSnapshot.docs.isNotEmpty) {
-          final nextInLine = queueSnapshot.docs.first;
-          await nextInLine.reference.update({
-            'status': 'confirmado',
-            'updatedAt': now,
-            'confirmedAt': now,
-          });
-        }
+      if (wasConfirmed) {
+        // Contar confirmados atuais e subtrair o participante que vai sair
+        final confirmedSnapshot = await participantsCollection.where('status', isEqualTo: 'confirmado').get();
+        final confirmedCountAfterLeaving = confirmedSnapshot.docs.isNotEmpty ? confirmedSnapshot.docs.length - 1 : 0;
+
+        // Usar batch para atualizar quem arregou e promover o próximo de forma consistente
+        final batch = _firestore.batch();
+
+        // Atualizar o participante atual para arregou
+        batch.update(participantRef, {
+          'status': 'arregou',
+          'updatedAt': now,
+          'confirmedAt': null,
+        });
+
+        // Promover o próximo da lista de espera
+        await _promoteNextFromWaitingListInBatch(
+          batch: batch,
+          groupId: groupId,
+          eventId: eventId,
+          participantsCollection: participantsCollection,
+          group: group,
+          now: now,
+          confirmedCountAfterLeaving: confirmedCountAfterLeaving,
+        );
+
+        await batch.commit();
+
+        debugPrint('Batch committed for arregou and promotion in event $eventId');
+      } else {
+        // Se não estava confirmado, apenas atualizar para arregou
+        await participantRef.update({
+          'status': 'arregou',
+          'updatedAt': now,
+          'confirmedAt': null,
+        });
       }
 
       return;
@@ -244,6 +368,65 @@ class EventService {
       'updatedAt': now,
       'confirmedAt': null,
     });
+  }
+
+  Future<void> _promoteNextFromWaitingListInBatch({
+    required WriteBatch batch,
+    required String groupId,
+    required String eventId,
+    required CollectionReference participantsCollection,
+    required Group group,
+    required Timestamp now,
+    required int confirmedCountAfterLeaving,
+  }) async {
+    // Contar confirmados após o participante que arrgou sair
+    final confirmedCount = confirmedCountAfterLeaving;
+
+    debugPrint('_promoteNextFromWaitingList: evento $eventId, confirmados após saída=$confirmedCount, max=${group.maxParticipants}');
+
+    if (confirmedCount >= group.maxParticipants) {
+      debugPrint('Não há vagas disponíveis para promoção no evento $eventId');
+      return;
+    }
+
+    // Verificar se há mensalistas aguardando; se sim, não promover avulsos
+    final hasPendingMensalista = await _hasPendingMensalista(groupId: groupId, eventId: eventId);
+    if (hasPendingMensalista) {
+      debugPrint('Há mensalistas aguardando; não promover avulsos no evento $eventId');
+      return;
+    }
+
+    // Buscar lista de espera ordenada por confirmedAt ASC (avulsos têm prioridade se não houver mensalistas aguardando)
+    final waitingListSnapshot = await participantsCollection
+        .where('status', isEqualTo: 'lista_espera')
+        .orderBy('confirmedAt')
+        .limit(1)
+        .get();
+
+    debugPrint('Waiting list query result: ${waitingListSnapshot.docs.length} docs');
+
+    if (waitingListSnapshot.docs.isEmpty) {
+      debugPrint('Não há avulsos na lista de espera para o evento $eventId');
+      return;
+    }
+
+    final nextInLine = waitingListSnapshot.docs.first;
+    final nextUserId = nextInLine.id;
+    final nextData = nextInLine.data() as Map<String, dynamic>?;
+    final nextType = nextData?['type'] ?? 'avulso';
+    final oldStatus = nextData?['status'] ?? 'lista_espera';
+
+    debugPrint('Promovendo avulso: userId=$nextUserId, path=${nextInLine.reference.path}, oldStatus=$oldStatus');
+
+    // Promover o próximo da fila para confirmado
+    // Manter confirmedAt original para preservar a ordem de tentativa
+    batch.update(nextInLine.reference, {
+      'status': 'confirmado',
+      'updatedAt': now,
+      // 'confirmedAt' permanece o mesmo
+    });
+
+    debugPrint('Avulso promovido: userId=$nextUserId, type=$nextType, oldStatus=$oldStatus, newStatus=confirmado, evento $eventId');
   }
 
   Future<void> cancelPelada({

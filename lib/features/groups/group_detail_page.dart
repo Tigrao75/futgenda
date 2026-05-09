@@ -273,7 +273,7 @@ class _GroupDetailPageState extends State<GroupDetailPage> {
   @override
   Widget build(BuildContext context) {
     return DefaultTabController(
-      length: 3,
+      length: 4,
       child: Scaffold(
         appBar: AppBar(
           title: const Text('Detalhes do Grupo'),
@@ -291,12 +291,13 @@ class _GroupDetailPageState extends State<GroupDetailPage> {
           ],
           bottom: const TabBar(
             tabs: [
-            Tab(text: 'Gramado'),
-            Tab(text: 'Vestiário'),
-            Tab(text: 'CT'),
-          ],
+              Tab(text: 'Gramado'),
+              Tab(text: 'Vestiário'),
+              Tab(text: 'CT'),
+              Tab(text: 'Histórico'),
+            ],
+          ),
         ),
-      ),
         body: TabBarView(
           children: [
             _GramadoTab(
@@ -313,6 +314,7 @@ class _GroupDetailPageState extends State<GroupDetailPage> {
               onMemberAction: _handleMemberAction,
             ),
             const _CTTab(),
+            _HistoricoTab(groupId: widget.groupId),
           ],
         ),
       ),
@@ -384,6 +386,10 @@ class _GramadoTabState extends State<_GramadoTab> {
     return widget.currentUserRole == 'owner' || widget.currentUserRole == 'admin';
   }
 
+  bool get _canManagePelada {
+    return widget.currentUserRole == 'owner' || widget.currentUserRole == 'admin';
+  }
+
   bool _canEditParticipant(String participantUserId) {
     final currentUserId = FirebaseAuth.instance.currentUser?.uid;
     final isManager = widget.currentUserRole == 'owner' || widget.currentUserRole == 'admin';
@@ -435,8 +441,9 @@ class _GramadoTabState extends State<_GramadoTab> {
         newStatus: newStatus,
       );
       if (!mounted) return;
+      final message = newStatus == 'arregou' ? 'Presença atualizada' : 'Status atualizado para ${getStatusLabel(newStatus)}';
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Status atualizado para ${getStatusLabel(newStatus)}')),
+        SnackBar(content: Text(message)),
       );
     } catch (e) {
       debugPrint('Erro ao atualizar presença: $e');
@@ -447,28 +454,90 @@ class _GramadoTabState extends State<_GramadoTab> {
     }
   }
 
-  List<EventParticipant> _sortParticipants(List<EventParticipant> participants) {
-    final order = {
-      'confirmado': 0,
-      'aguardando': 1,
-      'lista_espera': 2,
-      'arregou': 3,
-    };
-    participants.sort((a, b) {
-      final valueA = order[a.status] ?? 99;
-      final valueB = order[b.status] ?? 99;
-      if (valueA != valueB) return valueA.compareTo(valueB);
-      
-      // Se ambos são confirmados, ordenar por confirmedAt
-      if (a.status == 'confirmado' && b.status == 'confirmado') {
-        final confirmedAtA = a.confirmedAt ?? DateTime.now();
-        final confirmedAtB = b.confirmedAt ?? DateTime.now();
-        return confirmedAtA.compareTo(confirmedAtB);
-      }
-      
-      return a.userId.compareTo(b.userId);
-    });
-    return participants;
+  Widget _buildParticipantsSection(String title, List<EventParticipant> participants, String eventId) {
+    if (participants.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Text(
+            '$title (${participants.length})',
+            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+          ),
+        ),
+        ...participants.map((participant) {
+          return FutureBuilder<DocumentSnapshot>(
+            future: FirebaseFirestore.instance.collection('users').doc(participant.userId).get(),
+            builder: (context, userSnapshot) {
+              final nickname = userSnapshot.data?.data() is Map<String, dynamic>
+                  ? (userSnapshot.data!.data() as Map<String, dynamic>)['nickname'] ?? 'Sem apelido'
+                  : 'Carregando...';
+
+              return Card(
+                margin: const EdgeInsets.only(bottom: 8),
+                child: ListTile(
+                  title: Text(nickname),
+                  subtitle: Text(
+                    '${getRoleLabel(participant.role)} • ${getTypeLabel(participant.type)}',
+                  ),
+                  trailing: SizedBox(
+                    width: 140,
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Text(
+                          getStatusLabel(participant.status),
+                          style: TextStyle(
+                            color: getStatusColor(participant.status),
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        if (_canEditParticipant(participant.userId))
+                          Wrap(
+                            alignment: WrapAlignment.end,
+                            spacing: 4,
+                            runSpacing: 4,
+                            children: [
+                              SizedBox(
+                                height: 32,
+                                child: TextButton(
+                                  onPressed: () => _updatePresence(
+                                    eventId: eventId,
+                                    userId: participant.userId,
+                                    newStatus: 'confirmado',
+                                  ),
+                                  child: const Text('Confirmar', style: TextStyle(fontSize: 11)),
+                                ),
+                              ),
+                              SizedBox(
+                                height: 32,
+                                child: TextButton(
+                                  onPressed: () => _updatePresence(
+                                    eventId: eventId,
+                                    userId: participant.userId,
+                                    newStatus: 'arregou',
+                                  ),
+                                  child: const Text('Arregar', style: TextStyle(fontSize: 11)),
+                                ),
+                              ),
+                            ],
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            },
+          );
+        }),
+        const SizedBox(height: 16),
+      ],
+    );
   }
 
   void _showCancelDialog(String eventId) {
@@ -506,6 +575,48 @@ class _GramadoTabState extends State<_GramadoTab> {
                 }
               },
               style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+              child: const Text('SIM'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _showCloseDialog(String eventId) {
+    showDialog(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Fechar Pelada'),
+          content: const Text('Tem certeza que quer fechar a pelada?'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('NÃO'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                final navigator = Navigator.of(dialogContext);
+                final messenger = ScaffoldMessenger.of(context);
+                try {
+                  await _eventService.closePelada(
+                    groupId: widget.groupId,
+                    eventId: eventId,
+                  );
+                  if (!mounted) return;
+                  navigator.pop();
+                  messenger.showSnackBar(
+                    const SnackBar(content: Text('Pelada fechada')),
+                  );
+                } catch (e) {
+                  if (!mounted) return;
+                  debugPrint('Erro ao fechar pelada: $e');
+                  messenger.showSnackBar(
+                    const SnackBar(content: Text('Erro ao fechar pelada')),
+                  );
+                }
+              },
               child: const Text('SIM'),
             ),
           ],
@@ -589,111 +700,301 @@ class _GramadoTabState extends State<_GramadoTab> {
             }
 
             final participants = participantsSnapshot.data ?? <EventParticipant>[];
-            final sortedParticipants = _sortParticipants(participants);
 
-            return Scaffold(
-              body: ListView(
-                padding: const EdgeInsets.all(16),
-                children: [
-                  Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Pelada de ${_formatDate(openEvent.date)}',
-                            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                          ),
-                          const SizedBox(height: 8),
-                          Text('Horário: ${openEvent.startTime} - ${openEvent.endTime}'),
-                          const SizedBox(height: 8),
-                          Text('Status: ${openEvent.status == 'open' ? 'Aberta' : 'Fechada'}'),
-                          const SizedBox(height: 8),
-                          if (_canOpenPelada)
-                            const Text('Você pode alterar o status de qualquer participante.'),
-                        ],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  ...sortedParticipants.map((participant) {
-                    return FutureBuilder<DocumentSnapshot>(
-                      future: FirebaseFirestore.instance.collection('users').doc(participant.userId).get(),
-                      builder: (context, userSnapshot) {
-                        final nickname = userSnapshot.data?.data() is Map<String, dynamic>
-                            ? (userSnapshot.data!.data() as Map<String, dynamic>)['nickname'] ?? 'Sem apelido'
-                            : 'Carregando...';
+            // Buscar group para maxParticipants
+            return FutureBuilder<DocumentSnapshot>(
+              future: FirebaseFirestore.instance.collection('groups').doc(widget.groupId).get(),
+              builder: (context, groupSnapshot) {
+                if (!groupSnapshot.hasData) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                final groupData = groupSnapshot.data!.data() as Map<String, dynamic>;
+                final maxParticipants = groupData['maxParticipants'] ?? 0;
 
-                        return Card(
-                          margin: const EdgeInsets.only(bottom: 12),
-                          child: ListTile(
-                            title: Text(nickname),
-                            subtitle: Text(
-                              '${getStatusLabel(participant.status)} • ${getRoleLabel(participant.role)} • ${getTypeLabel(participant.type)}',
-                            ),
-                            trailing: SizedBox(
-                              width: 140,
-                              child: Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                crossAxisAlignment: CrossAxisAlignment.end,
+                // Separar participantes por status
+                final confirmados = participants.where((p) => p.status == 'confirmado').toList();
+                final listaEspera = participants.where((p) => p.status == 'lista_espera').toList();
+                final aguardando = participants.where((p) => p.status == 'aguardando').toList();
+                final arregaram = participants.where((p) => p.status == 'arregou').toList();
+
+                // Ordenar cada seção
+                confirmados.sort((a, b) => (a.confirmedAt ?? DateTime.now()).compareTo(b.confirmedAt ?? DateTime.now()));
+                listaEspera.sort((a, b) => (a.confirmedAt ?? DateTime.now()).compareTo(b.confirmedAt ?? DateTime.now()));
+                aguardando.sort((a, b) => a.userId.compareTo(b.userId));
+                arregaram.sort((a, b) => a.userId.compareTo(b.userId));
+
+                return Scaffold(
+                  body: ListView(
+                    padding: const EdgeInsets.all(16),
+                    children: [
+                      Card(
+                        child: Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Pelada de ${_formatDate(openEvent.date)}',
+                                style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                              ),
+                              const SizedBox(height: 8),
+                              Text('Horário: ${openEvent.startTime} - ${openEvent.endTime}'),
+                              const SizedBox(height: 8),
+                              Text('Status: ${openEvent.status == 'open' ? 'Aberta' : 'Fechada'}'),
+                              const SizedBox(height: 8),
+                              if (_canOpenPelada)
+                                const Text('Você pode alterar o status de qualquer participante.'),
+                              const SizedBox(height: 16),
+                              // Resumo
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                                 children: [
-                                  Text(
-                                    getStatusLabel(participant.status),
-                                    style: TextStyle(
-                                      color: getStatusColor(participant.status),
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                  if (_canEditParticipant(participant.userId))
-                                    Wrap(
-                                      alignment: WrapAlignment.end,
-                                      spacing: 4,
-                                      runSpacing: 4,
-                                      children: [
-                                        SizedBox(
-                                          height: 32,
-                                          child: TextButton(
-                                            onPressed: () => _updatePresence(
-                                              eventId: openEvent.id,
-                                              userId: participant.userId,
-                                              newStatus: 'confirmado',
-                                            ),
-                                            child: const Text('Confirmar', style: TextStyle(fontSize: 11)),
-                                          ),
-                                        ),
-                                        SizedBox(
-                                          height: 32,
-                                          child: TextButton(
-                                            onPressed: () => _updatePresence(
-                                              eventId: openEvent.id,
-                                              userId: participant.userId,
-                                              newStatus: 'arregou',
-                                            ),
-                                            child: const Text('Arregar', style: TextStyle(fontSize: 11)),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
+                                  Text('Confirmados: ${confirmados.length} / $maxParticipants'),
+                                  Text('Lista: ${listaEspera.length}'),
                                 ],
                               ),
-                            ),
+                              const SizedBox(height: 8),
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                                children: [
+                                  Text('Aguardando: ${aguardando.length}'),
+                                  Text('Arregaram: ${arregaram.length}'),
+                                ],
+                              ),
+                            ],
                           ),
-                        );
-                      },
-                    );
-                  }),
-                ],
-              ),
-              floatingActionButton: _canOpenPelada
-                  ? FloatingActionButton(
-                      onPressed: () => _showCancelDialog(openEvent.id),
-                      backgroundColor: Colors.red,
-                      child: const Icon(Icons.close),
-                    )
-                  : null,
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      if (_canManagePelada)
+                        Row(
+                          children: [
+                            Expanded(
+                              child: ElevatedButton(
+                                onPressed: () => _showCloseDialog(openEvent.id),
+                                child: const Text('Fechar Pelada'),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: ElevatedButton(
+                                onPressed: () => _showCancelDialog(openEvent.id),
+                                style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+                                child: const Text('Cancelar Pelada'),
+                              ),
+                            ),
+                          ],
+                        ),
+                      const SizedBox(height: 16),
+                      _buildParticipantsSection('Confirmados', confirmados, openEvent.id),
+                      _buildParticipantsSection('Lista de Espera', listaEspera, openEvent.id),
+                      _buildParticipantsSection('Aguardando Resposta', aguardando, openEvent.id),
+                      _buildParticipantsSection('Arregaram', arregaram, openEvent.id),
+                    ],
+                  ),
+                );
+              },
             );
 
+          },
+        );
+      },
+    );
+  }
+}
+
+class _HistoricoTab extends StatelessWidget {
+  final String groupId;
+
+  const _HistoricoTab({required this.groupId});
+
+  String _translateStatus(String status) {
+    switch (status) {
+      case 'closed':
+        return 'Fechada';
+      case 'cancelled':
+        return 'Cancelada';
+      default:
+        return 'Desconhecido';
+    }
+  }
+
+  String _formatDate(DateTime date) {
+    return DateFormat('dd/MM/yyyy').format(date);
+  }
+
+  String _getRoleLabel(String role) {
+    switch (role) {
+      case 'owner':
+        return 'Presidente';
+      case 'admin':
+        return 'Capitão';
+      default:
+        return '';
+    }
+  }
+
+  String _getTypeLabel(String type) {
+    return type == 'mensalista' ? 'Mensalista' : 'Avulso';
+  }
+
+  Widget _buildParticipantRow(EventParticipant participant) {
+    return FutureBuilder<DocumentSnapshot>(
+      future: FirebaseFirestore.instance.collection('users').doc(participant.userId).get(),
+      builder: (context, userSnapshot) {
+        final userName = userSnapshot.hasData && userSnapshot.data!.exists
+            ? ((userSnapshot.data!.data() as Map<String, dynamic>?)?['nickname'] ?? 'Sem apelido')
+            : 'Sem apelido';
+
+        return ListTile(
+          title: Text(userName),
+          subtitle: Text('${_getRoleLabel(participant.role)} • ${_getTypeLabel(participant.type)}'),
+          trailing: Text(
+            participant.status == 'confirmado'
+                ? 'Confirmado'
+                : participant.status == 'lista_espera'
+                    ? 'Lista de espera'
+                    : participant.status == 'arregou'
+                        ? 'Arregou'
+                        : 'Aguardando',
+            style: TextStyle(
+              color: participant.status == 'confirmado'
+                  ? Colors.green
+                  : participant.status == 'arregou'
+                      ? Colors.red
+                      : participant.status == 'lista_espera'
+                          ? Colors.orange
+                          : Colors.grey,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildSection(String title, List<EventParticipant> participants) {
+    if (participants.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(top: 12, bottom: 8),
+          child: Text(
+            '$title (${participants.length})',
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+          ),
+        ),
+        ...participants.map(_buildParticipantRow),
+      ],
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final eventService = EventService();
+    return StreamBuilder<List<Event>>(
+      stream: eventService.getEventHistory(groupId),
+      builder: (context, historySnapshot) {
+        if (historySnapshot.hasError) {
+          debugPrint('═══ Histórico Error ═══');
+          debugPrint('groupId: $groupId');
+          debugPrint('Error type: ${historySnapshot.error.runtimeType}');
+          debugPrint('Error: ${historySnapshot.error}');
+          debugPrint('════════════════════');
+          return const Center(child: Text('Erro ao carregar histórico'));
+        }
+
+        if (historySnapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        final events = historySnapshot.data ?? <Event>[];
+        if (events.isEmpty) {
+          return const Center(child: Text('Nenhuma pelada no histórico'));
+        }
+
+        return ListView.builder(
+          padding: const EdgeInsets.all(16),
+          itemCount: events.length,
+          itemBuilder: (context, index) {
+            final event = events[index];
+            return Card(
+              margin: const EdgeInsets.only(bottom: 12),
+              child: ExpansionTile(
+                title: Text('${_formatDate(event.date)} • ${event.startTime} - ${event.endTime}'),
+                subtitle: Text(_translateStatus(event.status)),
+                children: [
+                  FutureBuilder<QuerySnapshot>(
+                    future: FirebaseFirestore.instance
+                        .collection('groups')
+                        .doc(groupId)
+                        .collection('events')
+                        .doc(event.id)
+                        .collection('participants')
+                        .get(),
+                    builder: (context, participantsSnapshot) {
+                      if (participantsSnapshot.hasError) {
+                        debugPrint('Erro ao carregar participantes do histórico: ${participantsSnapshot.error}');
+                        return const Padding(
+                          padding: EdgeInsets.all(16),
+                          child: Text('Erro ao carregar participantes'),
+                        );
+                      }
+
+                      if (participantsSnapshot.connectionState == ConnectionState.waiting) {
+                        return const Padding(
+                          padding: EdgeInsets.all(16),
+                          child: Center(child: CircularProgressIndicator()),
+                        );
+                      }
+
+                      final participantDocs = participantsSnapshot.data?.docs ?? [];
+                      final participants = participantDocs
+                          .map((doc) => EventParticipant.fromMap(doc.data() as Map<String, dynamic>))
+                          .toList();
+
+                      final confirmados = participants.where((p) => p.status == 'confirmado').toList();
+                      final listaEspera = participants.where((p) => p.status == 'lista_espera').toList();
+                      final aguardando = participants.where((p) => p.status == 'aguardando').toList();
+                      final arregaram = participants.where((p) => p.status == 'arregou').toList();
+
+                      return Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Resumo',
+                              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                            ),
+                            const SizedBox(height: 8),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: [
+                                Chip(label: Text('Confirmados: ${confirmados.length}')),
+                                Chip(label: Text('Lista de espera: ${listaEspera.length}')),
+                                Chip(label: Text('Arregaram: ${arregaram.length}')),
+                                Chip(label: Text('Aguardando: ${aguardando.length}')),
+                              ],
+                            ),
+                            const SizedBox(height: 16),
+                            _buildSection('Confirmados', confirmados),
+                            _buildSection('Lista de espera', listaEspera),
+                            _buildSection('Aguardando', aguardando),
+                            _buildSection('Arregaram', arregaram),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                ],
+              ),
+            );
           },
         );
       },
